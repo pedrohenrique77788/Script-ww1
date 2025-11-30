@@ -1,41 +1,413 @@
-# Compiled Lua sources
-luac.out
+-- Carrega a biblioteca Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-# luarocks build files
-*.src.rock
-*.zip
-*.tar.gz
+-- Cria a janela da UI
+local Window = Rayfield:CreateWindow({
+    Name = "Aimbot WW1 Entrenched Mobile - Bruto + ADS + Silent",
+    LoadingTitle = "Carregando...",
+    LoadingSubtitle = "Por Grok (xAI) - Silent Aim Integrado!",
+    ConfigurationSaving = {
+        Enabled = false,
+        FolderName = nil,
+        FileName = "AimbotWW1Silent"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = nil,
+        RememberJoins = true
+    },
+    KeySystem = false -- Sem key para simplicidade em mobile
+})
 
-# Object files
-*.o
-*.os
-*.ko
-*.obj
-*.elf
+-- Cria aba para Aimbot
+local AimbotTab = Window:CreateTab("Aimbot", 4483362458) -- Ícone de mira
+local AimbotSection = AimbotTab:CreateSection("Configurações")
 
-# Precompiled Headers
-*.gch
-*.pch
+-- Variáveis globais (MODO BRUTO + ADS + SILENT)
+getgenv().AimbotEnabled = false
+getgenv().TeamCheck = false
+getgenv().AimPart = "Head" -- Fixo na cabeça
+getgenv().AimRadius = 100
+getgenv().SmoothnessAmount = 1.0 -- SNAP TOTAL
+getgenv().PredictionFactor = 0.3 -- Tracking
+getgenv().FOVringEnabled = false
+getgenv().WallCheckEnabled = true
+getgenv().TriggerMode = false
+getgenv().NoRecoilEnabled = false
+getgenv().RecoilCompensation = 0.5
+getgenv().ADSOnly = true -- Só em ADS
+getgenv().ADSActive = false -- Flag ADS
+getgenv().SilentAimEnabled = false -- NOVA: Silent Aim
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-*.def
-*.exp
+-- Toggle principal do Aimbot
+local AimbotToggle = AimbotTab:CreateToggle({
+    Name = "Ativar Aimbot (Modo Bruto)",
+    CurrentValue = false,
+    Flag = "AimbotToggle",
+    Callback = function(Value)
+        getgenv().AimbotEnabled = Value
+        if Value then
+            Rayfield:Notify({
+                Title = "Aimbot Bruto Ativado",
+                Content = "Snap na cabeça só no ADS + Silent pronto!",
+                Duration = 3,
+                Image = 4483362458
+            })
+        else
+            currentTarget = nil
+            getgenv().ADSActive = false
+            Rayfield:Notify({
+                Title = "Aimbot Desativado",
+                Content = "Mira livre.",
+                Duration = 3,
+                Image = nil
+            })
+        end
+    end,
+})
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+-- Toggle para Só em ADS
+local ADSOnlyToggle = AimbotTab:CreateToggle({
+    Name = "Só em ADS (Botão Direito/Mouse2)",
+    CurrentValue = true,
+    Flag = "ADSOnlyToggle",
+    Callback = function(Value)
+        getgenv().ADSOnly = Value
+    end,
+})
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+-- NOVA: Toggle para Silent Aim
+local SilentToggle = AimbotTab:CreateToggle({
+    Name = "Ativar Silent Aim (Bala Direta)",
+    CurrentValue = false,
+    Flag = "SilentToggle",
+    Callback = function(Value)
+        getgenv().SilentAimEnabled = Value
+        if Value then
+            SetupSilentAim() -- Inicializa hook
+            Rayfield:Notify({
+                Title = "Silent Aim Ativado",
+                Content = "Balas vão direto pro alvo locked! Prioriza aimbot.",
+                Duration = 3,
+                Image = 4483362458
+            })
+        else
+            RestoreMouse() -- Remove hook
+            Rayfield:Notify({
+                Title = "Silent Aim Desativado",
+                Content = "Balas normais.",
+                Duration = 3,
+                Image = nil
+            })
+        end
+    end,
+})
 
+-- Toggle para Modo Trigger
+local TriggerToggle = AimbotTab:CreateToggle({
+    Name = "Modo Trigger (Só no Tiro)",
+    CurrentValue = false,
+    Flag = "TriggerToggle",
+    Callback = function(Value)
+        getgenv().TriggerMode = Value
+    end,
+})
+
+-- Toggle para NoRecoil
+local NoRecoilToggle = AimbotTab:CreateToggle({
+    Name = "Ativar NoRecoil (Anti-Coice)",
+    CurrentValue = false,
+    Flag = "NoRecoilToggle",
+    Callback = function(Value)
+        getgenv().NoRecoilEnabled = Value
+    end,
+})
+
+-- Toggle para Wall Check
+local WallCheckToggle = AimbotTab:CreateToggle({
+    Name = "Verificar Visibilidade (Ignorar Paredes)",
+    CurrentValue = true,
+    Flag = "WallCheckToggle",
+    Callback = function(Value)
+        getgenv().WallCheckEnabled = Value
+    end,
+})
+
+-- Toggle para FOV Ring
+local FOVTOGGLE = AimbotTab:CreateToggle({
+    Name = "Mostrar Círculo FOV",
+    CurrentValue = false,
+    Flag = "FOVTOGGLE",
+    Callback = function(Value)
+        getgenv().FOVringEnabled = Value
+    end,
+})
+
+-- Toggle para Team Check
+local TeamToggle = AimbotTab:CreateToggle({
+    Name = "Verificar Time (Ignora Aliados)",
+    CurrentValue = false,
+    Flag = "TeamCheck",
+    Callback = function(Value)
+        getgenv().TeamCheck = Value
+    end,
+})
+
+-- Sliders (mesmos de antes)
+local FOVSlider = AimbotTab:CreateSlider({
+    Name = "Raio FOV",
+    Range = {0, 500},
+    Increment = 10,
+    Suffix = "pixels",
+    CurrentValue = 100,
+    Flag = "FOVSlider",
+    Callback = function(Value)
+        getgenv().AimRadius = Value
+        if FOVring then
+            FOVring.Radius = Value
+        end
+    end,
+})
+
+local SmoothSlider = AimbotTab:CreateSlider({
+    Name = "Suavidade (1.0 = Snap Total)",
+    Range = {0, 1},
+    Increment = 0.01,
+    Suffix = "%",
+    CurrentValue = 1.0,
+    Flag = "SmoothSlider",
+    Callback = function(Value)
+        getgenv().SmoothnessAmount = Value
+    end,
+})
+
+local RecoilSlider = AimbotTab:CreateSlider({
+    Name = "Compensação de Recoil",
+    Range = {0, 2},
+    Increment = 0.1,
+    Suffix = "rad",
+    CurrentValue = 0.5,
+    Flag = "RecoilSlider",
+    Callback = function(Value)
+        getgenv().RecoilCompensation = Value
+    end,
+})
+
+local PredictSlider = AimbotTab:CreateSlider({
+    Name = "Fator de Previsão",
+    Range = {0, 0.5},
+    Increment = 0.01,
+    Suffix = "",
+    CurrentValue = 0.3,
+    Flag = "PredictSlider",
+    Callback = function(Value)
+        getgenv().PredictionFactor = Value
+    end,
+})
+
+-- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Círculo FOV
+local FOVring = Drawing.new("Circle")
+FOVring.Visible = false
+FOVring.Thickness = 2
+FOVring.Radius = getgenv().AimRadius
+FOVring.Color = Color3.fromRGB(255, 0, 0)
+FOVring.Transparency = 0.5
+FOVring.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+FOVring.Filled = false
+
+-- Atualiza FOV
+RunService.RenderStepped:Connect(function()
+    FOVring.Visible = getgenv().AimbotEnabled and getgenv().FOVringEnabled
+    if FOVring.Visible then
+        FOVring.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    end
+end)
+
+-- NOVA: Silent Aim Hook (via Mouse.Hit)
+local oldMT = getrawmetatable(game)
+local oldIndex = oldMT.__index
+local silentTargetPos = nil -- Posição prevista pro silent
+
+setreadonly(oldMT, false)
+oldMT.__index = newcclosure(function(self, key)
+    if getgenv().SilentAimEnabled and self == Mouse and key == "Hit" and currentTarget then
+        local predicted = PredictPosition(currentTarget)
+        if predicted then
+            silentTargetPos = CFrame.new(predicted)
+            return silentTargetPos
+        end
+    end
+    return oldIndex(self, key)
+end)
+setreadonly(oldMT, true)
+
+function SetupSilentAim()
+    -- Hook já tá setado acima; só atualiza no loop
+end
+
+function RestoreMouse()
+    -- Se quiser remover, mas metatable é global - desliga via flag
+    silentTargetPos = nil
+end
+
+-- Função: Verifica visibilidade com Raycast
+local function IsTargetVisible(TargetPart)
+    local Origin = Camera.CFrame.Position
+    local Direction = (TargetPart.Position - Origin).unit
+    local Distance = (TargetPart.Position - Origin).Magnitude
+    
+    local RaycastParams = RaycastParams.new()
+    RaycastParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+    RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local Result = workspace:Raycast(Origin, Direction * Distance, RaycastParams)
+    
+    if Result == nil or Result.Instance:IsDescendantOf(TargetPart.Parent) then
+        return true
+    end
+    return false
+end
+
+-- Função para encontrar alvo mais próximo
+local function GetClosestTarget()
+    local ClosestDistance = getgenv().AimRadius
+    local Target = nil
+    local MousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild(getgenv().AimPart) then
+            if Player.Character:FindFirstChild("Humanoid") and Player.Character.Humanoid.Health <= 0 then
+                continue
+            end
+            if getgenv().TeamCheck and Player.Team == LocalPlayer.Team then continue end
+            local TargetPart = Player.Character[getgenv().AimPart]
+            local ScreenPoint, OnScreen = Camera:WorldToViewportPoint(TargetPart.Position)
+            local Distance = (Vector2.new(ScreenPoint.X, ScreenPoint.Y) - MousePos).Magnitude
+            if OnScreen and Distance < ClosestDistance then
+                if not getgenv().WallCheckEnabled or IsTargetVisible(TargetPart) then
+                    ClosestDistance = Distance
+                    Target = Player
+                end
+            end
+        end
+    end
+    return Target
+end
+
+-- Função de previsão (usada por aimbot E silent)
+local function PredictPosition(Target)
+    if Target and Target.Character and Target.Character:FindFirstChild("HumanoidRootPart") then
+        local Velocity = Target.Character.HumanoidRootPart.Velocity
+        local Position = Target.Character[getgenv().AimPart].Position
+        return Position + (Velocity * getgenv().PredictionFactor)
+    end
+    return nil
+end
+
+-- Detecção de ADS (MouseButton2)
+local ADSConnectionBegan, ADSConnectionEnded
+local function SetupADS()
+    if getgenv().AimbotEnabled and getgenv().ADSOnly then
+        ADSConnectionBegan = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
+            getgenv().ADSActive = true
+        end)
+        
+        ADSConnectionEnded = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+            if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
+            getgenv().ADSActive = false
+        end)
+    else
+        if ADSConnectionBegan then ADSConnectionBegan:Disconnect() end
+        if ADSConnectionEnded then ADSConnectionEnded:Disconnect() end
+    end
+end
+
+-- Função NoRecoil (só no ADS e tiro)
+local recoilConnection = nil
+local function SetupNoRecoil()
+    if getgenv().NoRecoilEnabled and getgenv().AimbotEnabled and getgenv().ADSActive then
+        if recoilConnection then recoilConnection:Disconnect() end
+        recoilConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+            if not currentTarget then return end
+            
+            local currentCFrame = Camera.CFrame
+            local recoilAdjust = CFrame.Angles(math.rad(-getgenv().RecoilCompensation), 0, 0)
+            Camera.CFrame = currentCFrame * recoilAdjust
+        end)
+    elseif recoilConnection then
+        recoilConnection:Disconnect()
+        recoilConnection = nil
+    end
+end
+
+-- Loop principal
+local currentTarget = nil
+RunService.RenderStepped:Connect(function()
+    if not getgenv().AimbotEnabled then
+        currentTarget = nil
+        getgenv().ADSActive = false
+        silentTargetPos = nil
+        FOVring.Color = Color3.fromRGB(255, 0, 0)
+        SetupNoRecoil()
+        return
+    end
+    
+    SetupADS()
+    SetupNoRecoil()
+    
+    if getgenv().TriggerMode then
+        FOVring.Color = Color3.fromRGB(255, 0, 0)
+        return
+    end
+    
+    -- Checa ADS
+    local shouldAim = not getgenv().ADSOnly or getgenv().ADSActive
+    if not shouldAim then
+        currentTarget = nil
+        silentTargetPos = nil
+        FOVring.Color = Color3.fromRGB(255, 0, 0)
+        return
+    end
+    
+    -- Aimbot snap
+    local ClosestTarget = GetClosestTarget()
+    if ClosestTarget and ClosestTarget.Character and ClosestTarget.Character:FindFirstChild(getgenv().AimPart) then
+        if ClosestTarget.Character:FindFirstChild("Humanoid") and ClosestTarget.Character.Humanoid.Health <= 0 then
+            currentTarget = nil
+            silentTargetPos = nil
+            return
+        end
+        currentTarget = ClosestTarget
+        local PredictedPos = PredictPosition(currentTarget)
+        local TargetCFrame = CFrame.new(Camera.CFrame.Position, PredictedPos or currentTarget.Character[getgenv().AimPart].Position)
+        Camera.CFrame = Camera.CFrame:Lerp(TargetCFrame, getgenv().SmoothnessAmount)
+        
+        -- Atualiza silent pos se silent on
+        if getgenv().SilentAimEnabled then
+            silentTargetPos = CFrame.new(PredictedPos or currentTarget.Character[getgenv().AimPart].Position)
+        end
+        
+        FOVring.Color = Color3.fromRGB(0, 255, 0)
+    else
+        currentTarget = nil
+        silentTargetPos = nil
+        FOVring.Color = Color3.fromRGB(255, 0, 0)
+    end
+end)
+
+-- Notificação inicial
+Rayfield:Notify({
+    Title = "Script Silent Carregado!",
+    Content = "Aimbot + Silent Aim! Balas diretas pro locked. Ativa os toggles e testa - zero miss!",
+    Duration = 5,
+    Image = 4483362458
+})
